@@ -60,7 +60,19 @@ export class Server
             return
 
         this.connecting = true
-        const socket = new WebSocket(socketUrl)
+
+        let socket
+        try
+        {
+            socket = new WebSocket(socketUrl)
+        }
+        catch(error)
+        {
+            this.connecting = false
+            console.warn('Server > Invalid WebSocket URL', socketUrl, error)
+            return
+        }
+
         this.socket = socket
         socket.binaryType = 'arraybuffer'
 
