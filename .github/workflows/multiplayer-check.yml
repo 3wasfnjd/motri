@@ -1,0 +1,48 @@
+name: Multiplayer prototype checks
+
+on:
+  push:
+    branches: [multiplayer-prototype]
+    paths:
+      - 'sources/Game/Multiplayer.js'
+      - 'sources/Game/Server.js'
+      - 'sources/Game/Game.js'
+      - 'multiplayer-server/**'
+      - '.env.example'
+      - '.github/workflows/multiplayer-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Syntax check multiplayer files
+        run: |
+          node --check sources/Game/Multiplayer.js
+          node --check sources/Game/Server.js
+          node --check multiplayer-server/src/index.js
+
+      - name: Install game dependencies
+        run: npm ci --force --ignore-scripts --no-audit --no-fund
+
+      - name: Build game
+        run: npm run build
+
+      - name: Install multiplayer server dependencies
+        working-directory: multiplayer-server
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Validate Cloudflare Worker config
+        working-directory: multiplayer-server
+        run: npx wrangler deploy --dry-run --outdir .wrangler-dry-run
