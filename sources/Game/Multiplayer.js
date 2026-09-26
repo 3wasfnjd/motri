@@ -73,6 +73,9 @@ export class Multiplayer
         if(!remote)
             remote = this.createRemotePlayer(uuid, name)
 
+        if(!remote)
+            return
+
         remote.name = name || remote.name
         remote.targetPosition.fromArray(state.p)
         remote.targetQuaternion.fromArray(state.q)
