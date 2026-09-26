@@ -36,6 +36,12 @@ jobs:
       - name: Install game dependencies
         run: npm ci --force --ignore-scripts --no-audit --no-fund
 
+      - name: Install Firebase SDK required by the existing game build
+        run: |
+          rm -rf "$RUNNER_TEMP/firebase-sdk"
+          npm install --prefix "$RUNNER_TEMP/firebase-sdk" --ignore-scripts --no-audit --no-fund firebase@12.19.0
+          cp -a "$RUNNER_TEMP/firebase-sdk/node_modules/." node_modules/
+
       - name: Build game
         run: npm run build
 
