@@ -18,95 +18,138 @@ export class Server
         }
 
         this.connected = false
+        this.connecting = false
         this.initData = null
         this.events = new Events()
+        this.sessionUuid = uuidv4()
+        this.reconnectInterval = null
+        this.room = new URLSearchParams(window.location.search).get('room') || import.meta.env.VITE_MULTIPLAYER_ROOM || 'public'
         document.documentElement.classList.add('is-server-offline')
     }
 
     start()
     {
-        if(import.meta.env.VITE_SERVER_URL)
+        if(!import.meta.env.VITE_SERVER_URL || this.reconnectInterval)
+            return
+
+        this.connect()
+
+        this.reconnectInterval = setInterval(() =>
         {
-            // First connect attempt
-            this.connect()
-            
-            // Try connect
-            setInterval(() =>
-            {
-                if(!this.connected)
-                    this.connect()
-            }, 2000)
-        }
+            if(!this.connected && !this.connecting)
+                this.connect()
+        }, 2000)
+    }
+
+    getSocketUrl()
+    {
+        const base = String(import.meta.env.VITE_SERVER_URL || '').replace(/\/+$/, '')
+        if(!base)
+            return null
+
+        if(base.includes('{room}'))
+            return base.replace('{room}', encodeURIComponent(this.room))
+
+        return `${base}/room/${encodeURIComponent(this.room)}`
     }
 
     connect()
     {
-        this.socket = new WebSocket(import.meta.env.VITE_SERVER_URL)
-        this.socket.binaryType = 'arraybuffer'
+        const socketUrl = this.getSocketUrl()
+        if(!socketUrl || this.connecting || this.connected)
+            return
 
-        this.socket.addEventListener('open', () =>
+        this.connecting = true
+        const socket = new WebSocket(socketUrl)
+        this.socket = socket
+        socket.binaryType = 'arraybuffer'
+
+        socket.addEventListener('open', () =>
         {
+            if(this.socket !== socket)
+                return
+
+            this.connecting = false
             this.connected = true
             document.documentElement.classList.remove('is-server-offline')
             document.documentElement.classList.add('is-server-online')
             this.events.trigger('connected')
 
-            // On message
-            this.socket.addEventListener('message', (message) =>
-            {
-                this.onReceive(message)
-            })
-
-            // Notification (only if been running for a while)
             if(this.game.ticker.elapsed > 10)
             {
                 const html = /* html */`
                     <div class="top">
-                        <div class="title">تم الاتصال بالخادم</div>
+                        <div class="title">تم الاتصال بالغرفة ${this.room}</div>
                     </div>
                 `
 
                 this.game.notifications.show(
                     html,
                     'server-connected',
-                    8,
+                    5,
                     null,
                     'server-connected'
                 )
             }
+        })
 
-            // On close
-            this.socket.addEventListener('close', () =>
+        socket.addEventListener('message', (message) =>
+        {
+            if(this.socket === socket)
+                this.onReceive(message)
+        })
+
+        socket.addEventListener('close', () =>
+        {
+            if(this.socket !== socket)
+                return
+
+            const wasConnected = this.connected
+            this.connecting = false
+            this.connected = false
+            document.documentElement.classList.add('is-server-offline')
+            document.documentElement.classList.remove('is-server-online')
+
+            if(wasConnected && this.game.ticker.elapsed > 10)
             {
-                document.documentElement.classList.add('is-server-offline')
-                document.documentElement.classList.remove('is-server-online')
-                this.connected = false
-
-                // Notification
                 const html = /* html */`
                     <div class="top">
-                        <div class="title">انقطع الاتصال بالخادم</div>
+                        <div class="title">انقطع الاتصال باللعب الجماعي</div>
                     </div>
                 `
 
                 this.game.notifications.show(
                     html,
                     'server-disconnected',
-                    8,
+                    5,
                     null,
                     'server-disconnected'
                 )
-                
-                this.events.trigger('disconnected')
-            })
+            }
+
+            this.events.trigger('disconnected')
+        })
+
+        socket.addEventListener('error', () =>
+        {
+            if(this.socket === socket)
+                this.connecting = false
         })
     }
 
     onReceive(message)
     {
-        const data = this.decode(message.data)
-    
-    
+        let data
+        try
+        {
+            data = this.decode(message.data)
+        }
+        catch(error)
+        {
+            console.warn('Server > Invalid message', error)
+            return
+        }
+
         if(this.initData === null)
             this.initData = data
 
@@ -118,16 +161,24 @@ export class Server
         if(!this.connected)
             return false
 
-        this.socket.send(this.encode({ uuid: this.uuid, ...message }))
+        this.socket.send(this.encode({
+            uuid: this.sessionUuid,
+            deviceUuid: this.uuid,
+            room: this.room,
+            ...message
+        }))
     }
 
     decode(data)
     {
+        if(typeof data === 'string')
+            return JSON.parse(data)
+
         return msgpack.decode(new Uint8Array(data))
     }
 
     encode(data)
     {
-        return msgpack.encode(data)
+        return JSON.stringify(data)
     }
 }
